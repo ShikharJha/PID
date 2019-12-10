@@ -1,0 +1,67 @@
+from gekko import GEKKO
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+
+# load data and parse into columns
+url = 'http://apmonitor.com/do/uploads/Main/cstr_step_tests.txt'
+data = pd.read_csv(url)
+print(data.head())
+
+# generate time-series model
+t = data['Time']
+u = data['Tc']
+y = data['T']
+m = GEKKO(remote=True) # remote=True for MacOS
+
+# system identification
+na = 2 # output coefficients
+nb = 2 # input coefficients
+yp,p,K = m.sysid(t,u,y,na,nb,shift='init',scale=True,objf=100,diaglevel=1)
+
+# plot results of fitting
+plt.figure()
+plt.subplot(2,1,1)
+plt.plot(t,u)
+plt.legend([r'$T_c$'])
+plt.ylabel('MV')
+plt.subplot(2,1,2)
+plt.plot(t,y)
+plt.plot(t,yp)
+plt.legend([r'$T_{meas}$',r'$T_{pred}$'])
+plt.ylabel('CV')
+plt.xlabel('Time')
+plt.savefig('sysid.png')
+
+# step test model
+yc,uc = m.arx(p)
+
+# rename MV and CV
+Tc = uc[0]
+T = yc[0]
+
+# steady state initialization
+m.options.IMODE = 1
+Tc.value = 300
+m.solve(disp=False)
+
+# dynamic simulation (step test validation)
+m.time = np.linspace(0,2,21)
+m.options.IMODE = 4
+Tc.value = np.ones(21)*300
+Tc.value[5:] = 305
+m.solve(disp=False)
+
+plt.figure()
+plt.subplot(2,1,1)
+plt.title('Step Test')
+plt.plot(m.time,Tc.value,'b-',label='Cooling Jacket')
+plt.ylabel(r'$T_c (K)$')
+plt.legend()
+plt.subplot(2,1,2)
+plt.plot(m.time,T.value,'r-',label='Reactor')
+plt.ylabel('T (K)')
+plt.xlabel('Time (min)')
+plt.legend()
+
+plt.show()
